@@ -1,9 +1,10 @@
 #include "raylib.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #define GRID_SIZE 15
-#define SNAKE_SPEED 2
+#define SNAKE_SPEED 4
 
 //colors are based on rgba
 #define GRID_LIGHT_GREEN (Color) {170, 215, 81, 255}
@@ -19,6 +20,13 @@ typedef struct snakeBody snakeBody, *body;
 struct snakeHead {
     Vector2 position;
     Vector2 speed;
+    /*
+    The snake will have to stick to the grid so when the
+    direction changes it will not necessarily turn on the spot
+    (it will memorise up to 2 actions and turn only when it can)
+    (6 for '\0' to use string operations)
+    */
+    char direction[3];
     body next;
 };
 
@@ -31,7 +39,7 @@ void drawGrid(int gridSize, int gridPx);
 head initPlayer(int screenWidth, int screenHeight);
 int movePlayer(head player);
 void drawSnake (head player, int gridSize, int screenWidth);
-void directionChange (head player, char *direction, int gridSize, int gridPx);
+void directionChange (head player, int gridSize, int gridPx);
 int isNearGridCenter (head player, int gridPx);
 
 int main() {
@@ -55,13 +63,6 @@ int main() {
     //set fps of game
     SetTargetFPS(60);
 
-    /*
-    The snake will have to stick to the grid so when the
-    direction changes it will not necessarily turn on the spot
-    (it will memorise this action and turn only when it can)
-    */
-    char direction = 'N'; //N S E W
-
     //main game
     while (!WindowShouldClose()) {
         //game processes
@@ -73,7 +74,7 @@ int main() {
                 
             break;
             case GAMEPLAY:
-                directionChange(player, &direction, GRID_SIZE, gridPx);
+                directionChange(player, GRID_SIZE, gridPx);
                 if (!movePlayer(player)) {
                     screen = LOSE;
                     break;
@@ -135,21 +136,23 @@ void drawGrid(int gridSize, int gridPx) {
 }
 
 head initPlayer(int screenWidth, int screenHeight) {
-    head player = (head) malloc(sizeof(snakeHead));
+    head player = (head)malloc(sizeof(snakeHead));
     player->position.x = screenWidth >> 1; //screenWidth / 2
     player->position.y = screenHeight >> 1;
     //by default, snake will go upwards
     player->speed.x = 0;
     player->speed.y = -SNAKE_SPEED;
     player->next = NULL;
+    player->direction[0] = 'N';
+    player->direction[1] = '\0';
     return player;
 }
 
 int movePlayer(head player) {
     player->position.x += player->speed.x;
     player->position.y += player->speed.y;
-    if (player->position.x == 0 || player->position.x == GetRenderWidth() ||
-        player->position.y == 0 || player->position.y == GetRenderHeight())
+    if (player->position.x <= 0 || player->position.x >= GetRenderWidth() ||
+        player->position.y <= 0 || player->position.y >= GetRenderHeight())
         return 0;
     return 1;
 }
@@ -159,20 +162,39 @@ void drawSnake (head player, int gridSize, int screenWidth) {
     DrawCircle(player->position.x, player->position.y, bodySize, BLACK);
 }
 
-void directionChange (head player, char *direction, int gridSize, int gridPx) {
-    if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))
-        *direction = 'W';
-    if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP))
-        *direction = 'N';
-    if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT))
-        *direction = 'E';
-    if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN))
-        *direction = 'S';
+void directionChange (head player, int gridSize, int gridPx) {
+    int k = strlen(player->direction);
+    //memorise new direction only if it doesnt exceed 2 chars
+    if (k < 2) {
+        /*
+        memorise in the string the directions inputed only if
+        it does not coincide with the direction already going
+        (this way it wont fill with same direction when spamming
+        which would create input lag by first "changing direction"
+        to the same one, esentially blocking new valid inputs)
+        */
+        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && player->direction[0] != 'W') {
+            player->direction[k++] = 'W';
+            player->direction[k++] = '\0';
+        }
+        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && player->direction[0] != 'N') {
+            player->direction[k++] = 'N';
+            player->direction[k++] = '\0';
+        }
+        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && player->direction[0] != 'E') {
+            player->direction[k++] = 'E';
+            player->direction[k++] = '\0';
+        }
+        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && player->direction[0] != 'S') {
+            player->direction[k++] = 'S';
+            player->direction[k++] = '\0';
+        }
+    }
     //check whether the snake is close enough to the center to turn
     if (isNearGridCenter(player, gridPx)) {
         player->position.x = player->position.x - (int)player->position.x % gridPx + (gridPx >> 1);
         player->position.y = player->position.y - (int)player->position.y % gridPx + (gridPx >> 1);
-        switch (*direction) {
+        switch (player->direction[0]) {
             case 'N':
                 player->speed.y = -SNAKE_SPEED;
                 player->speed.x = 0;
@@ -191,6 +213,14 @@ void directionChange (head player, char *direction, int gridSize, int gridPx) {
             break;
             default: break;
         }
+        /*
+        shift the chars in the string left, removing the first one
+        (which has been executed above)
+        */
+        printf("%s.", player->direction);
+        for (int i = 0; i < k; i++)
+            player->direction[i] = player->direction[i + 1];
+        printf("%s\n", player->direction);
     }
 }
 
