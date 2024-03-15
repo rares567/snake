@@ -15,11 +15,10 @@ typedef enum gameScreen {
     LOGO, TITLE, GAMEPLAY, WIN, LOSE
 } gameScreen;
 
-typedef struct snakeHead snakeHead, *head;
-typedef struct snakeBody snakeBody, *body;
+typedef struct snakeSegm snakeSegm, *segm;
 
-//the snake is a singly linked list with sentinel
-struct snakeHead {
+//the snake is a singly linked list
+struct snakeSegm {
     Vector2 position;
     Vector2 speed;
     int radius;
@@ -30,12 +29,7 @@ struct snakeHead {
     (6 for '\0' to use string operations)
     */
     char direction[3];
-    body next;
-};
-
-struct snakeBody {
-    Vector2 position;
-    body next;
+    segm next;
 };
 
 typedef struct food {
@@ -44,17 +38,18 @@ typedef struct food {
 } Food;
 
 void drawGrid(int gridSize, int gridPx);
-head initPlayer(int screenWidth, int screenHeight, int gridSize);
-int movePlayer(head player);
-void drawSnake (head player);
-void directionChange (head player, int gridSize, int gridPx);
-bool isNearGridCenter (head player, int gridPx);
+segm initPlayer(int screenWidth, int screenHeight, int gridSize);
+int movePlayer(segm player, int framesCounter, int speed);
+void drawSnake (segm player);
+void directionChange (segm player, int gridSize, int gridPx);
+bool isNearGridCenter (segm player, int gridPx);
 void createFood(Food *food, int gridSize, int gridPx);
 void drawFood (Food *food);
 Food *initFood(int gridSize, int gridPx);
-bool hasHitFood(head player, Food *food);
-void addBodySegm(head player);
-void freeAll(head player, Food *food);
+bool hasHitFood(segm player, Food *food);
+void addSegm(segm player);
+void freeAll(segm player, Food *food);
+void turnSegm (segm segm, int gridPx);
 
 int main() {
     //get screen dimensions
@@ -63,7 +58,7 @@ int main() {
     int gridPx = 50;
 
     //initialisation of player and food
-    head player = initPlayer(screenWidth, screenHeight, GRID_SIZE);
+    segm player = initPlayer(screenWidth, screenHeight, GRID_SIZE);
     Food *food = initFood(GRID_SIZE, gridPx);
 
     //seed the rng
@@ -74,7 +69,7 @@ int main() {
 
     //define screen type
     gameScreen screen = GAMEPLAY;
-    //int frameCounter = 0;
+    int frameCounter = 0;
     //int gameResult = -1; //-1 not defined, 0 lose, 1 win
     //bool gamePaused = 0;
 
@@ -95,12 +90,14 @@ int main() {
                 directionChange(player, GRID_SIZE, gridPx);
                 if (hasHitFood(player, food)) {
                     createFood(food, GRID_SIZE, gridPx);
-                    addBodySegm(player);
+                    addSegm(player);
+                    frameCounter = 0;
                 }
-                if (!movePlayer(player)) {
+                if (!movePlayer(player, frameCounter, SNAKE_SPEED)) {
                     screen = LOSE;
                     break;
                 }
+                frameCounter++;
             break;
             case WIN:
 
@@ -158,45 +155,62 @@ void drawGrid(int gridSize, int gridPx) {
     }         
 }
 
-head initPlayer(int screenWidth, int screenHeight, int gridSize) {
-    head player = (head)malloc(sizeof(snakeHead));
+segm initPlayer(int screenWidth, int screenHeight, int gridSize) {
+    segm player = (segm)malloc(sizeof(snakeSegm));
     player->position.x = screenWidth >> 1; //screenWidth / 2
     player->position.y = screenHeight >> 1;
     //by default, snake will go upwards
     player->speed.x = 0;
     player->speed.y = -SNAKE_SPEED;
     player->radius = (int)(screenWidth / gridSize * 0.4);
-    player->next = (body)malloc(sizeof(snakeBody));
-    player->next->next = NULL;
+    player->next = NULL;
     player->direction[0] = 'N';
     player->direction[1] = '\0';
     return player;
 }
 
-int movePlayer(head player) {
+int movePlayer(segm player, int framesCounter, int speed) {
     player->position.x += player->speed.x;
     player->position.y += player->speed.y;
+    segm p = player->next;
+    if ((framesCounter / (30 / speed)) >= 1) {
+        while (p != NULL) {
+            p->position.x += p->speed.x;
+            p->position.y += p->speed.y;
+            p = p->next;
+        }
+    }
+    /*if (player->next != NULL) {
+        if ((abs(player->next->position.x - player->position.x) > 30) ||
+            (abs(player->next->position.y - player->position.y) > 30)) {
+                player->next->position.x += player->next->speed.x;
+                player->next->position.y += player->next->speed.y;
+            }
+        segm p = player->next->next;
+        while (p != NULL) {
+            p->position.x += p->speed.x;
+            p->position.y += p->speed.y;
+            p = p->next;
+        }
+    }*/
     if (player->position.x <= 0 || player->position.x >= GetRenderWidth() ||
         player->position.y <= 0 || player->position.y >= GetRenderHeight())
         return 0;
-    body p = player->next;
-    
     return 1;
 }
 
-void drawSnake (head player) {
-    //skip sentinel
-    body p = player->next->next;
-    DrawCircle(player->position.x, player->position.y, player->radius, BLACK);
-    while (p != NULL) {
-        DrawCircle(p->position.x, p->position.y, player->radius, BLACK);
+void drawSnake (segm player) {
+    segm p = player;
+    do {
+        DrawCircle(p->position.x, p->position.y, p->radius, BLACK);
         p = p->next;
-    }
+    } while (p != NULL);
 }
 
-void directionChange (head player, int gridSize, int gridPx) {
+void directionChange (segm player, int gridSize, int gridPx) {
+    //separate case for player head
     int k = strlen(player->direction);
-    //memorise new direction only if it doesnt exceed 2 chars
+    //memorise new direction only if it doesnt exceed 1 char
     if (k < 2) {
         /*
         memorise in the string the directions inputed only if
@@ -222,29 +236,12 @@ void directionChange (head player, int gridSize, int gridPx) {
             player->direction[k++] = '\0';
         }
     }
-    //check whether the snake is close enough to the center to turn
+    //check whether the head is close enough to the center to turn
     if (isNearGridCenter(player, gridPx)) {
-        player->position.x = player->position.x - (int)player->position.x % gridPx + (gridPx >> 1);
-        player->position.y = player->position.y - (int)player->position.y % gridPx + (gridPx >> 1);
-        switch (player->direction[0]) {
-            case 'N':
-                player->speed.y = -SNAKE_SPEED;
-                player->speed.x = 0;
-            break;
-            case 'S':
-                player->speed.y = SNAKE_SPEED;
-                player->speed.x = 0;
-            break;
-            case 'E':
-                player->speed.y = 0;
-                player->speed.x = SNAKE_SPEED;
-            break;
-            case 'W':
-                player->speed.y = 0;
-                player->speed.x = -SNAKE_SPEED;
-            break;
-            default: break;
-        }
+        turnSegm(player, gridPx);
+        //transmit the move executed to next segment
+        if (player->next != NULL)
+            player->next->direction[0] = player->direction[0];
         /*
         shift the chars in the string left, removing the first one
         (which has been executed above)
@@ -252,9 +249,18 @@ void directionChange (head player, int gridSize, int gridPx) {
         for (int i = 0; i < k; i++)
             player->direction[i] = player->direction[i + 1];
     }
+    segm p = player->next;
+    while (p != NULL) {
+        if (isNearGridCenter(p, gridPx)) {
+            turnSegm(p, gridPx);
+            if (p->next != NULL)
+                p->next->direction[0] = p->direction[0];
+        }
+        p = p->next;
+    }
 }
 
-bool isNearGridCenter (head player, int gridPx) {
+bool isNearGridCenter (segm player, int gridPx) {
     //calculate distance from grid-cell center
     int distCenterX = ((int)player->position.x % gridPx + (gridPx >> 1)) % gridPx;
     int distCenterY = ((int)player->position.y % gridPx + (gridPx >> 1)) % gridPx;
@@ -284,31 +290,61 @@ Food *initFood(int gridSize, int gridPx) {
     return food;
 }
 
-bool hasHitFood(head player, Food *food) {
+bool hasHitFood(segm player, Food *food) {
     if (abs(player->position.x - food->position.x) <= player->radius + food->radius &&
         abs(player->position.y - food->position.y) <= player->radius + food->radius)
         return true;
     return false;
 }
 
-//add body segment at the beginning
-void addBodySegm(head player) {
-    body newSegm = (body)malloc(sizeof(snakeBody));
+//add segment right after snake head
+void addSegm(segm player) {
+    segm newSegm = (segm)malloc(sizeof(snakeSegm));
     newSegm->position.x = player->position.x;
     newSegm->position.y = player->position.y;
-    //skip sentinel
-    newSegm->next = player->next->next;
-    player->next->next = newSegm;
+    newSegm->radius = player->radius;
+    /*
+    the segments after head will only need to memorise one
+    direction at a time (its just copying last head movement)
+    */
+    newSegm->direction[0] = player->direction[0];
+    newSegm->speed.x = player->speed.x;
+    newSegm->speed.y = player->speed.y;
+    newSegm->next = player->next;
+    player->next = newSegm;
 }
 
-void freeAll(head player, Food *food) {
-    body p = player->next;
-    body tmp;
-    while (p != NULL) {
+void freeAll(segm player, Food *food) {
+    segm p = player;
+    segm tmp;
+    do {
         tmp = p->next;
         free(p);
         p = tmp;
-    }
-    free(player);
+    } while (p != NULL);
     free(food);
+}
+
+void turnSegm (segm segm, int gridPx) {
+    segm->position.x = segm->position.x - (int)segm->position.x % gridPx + (gridPx >> 1);
+    segm->position.y = segm->position.y - (int)segm->position.y % gridPx + (gridPx >> 1);
+    switch (segm->direction[0]) {
+        case 'N':
+            segm->speed.y = -SNAKE_SPEED;
+            segm->speed.x = 0;
+        break;
+        case 'S':
+            segm->speed.y = SNAKE_SPEED;
+            segm->speed.x = 0;
+        break;
+        case 'E':
+            segm->speed.y = 0;
+            segm->speed.x = SNAKE_SPEED;
+        break;
+        case 'W':
+            segm->speed.y = 0;
+            segm->speed.x = -SNAKE_SPEED;
+        break;
+        default: break;
+    }
 }
