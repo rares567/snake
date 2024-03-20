@@ -38,8 +38,8 @@ typedef struct food {
 } Food;
 
 void drawGrid(int gridSize, int gridPx);
-segm initPlayer(int screenWidth, int screenHeight, int gridSize);
-int movePlayer(segm player, int framesCounter, int speed);
+segm initPlayer(int gridSize, int gridPx);
+int movePlayer(segm player, int frameCounter, int framePause);
 void drawSnake (segm player);
 void directionChange (segm player, int gridSize, int gridPx);
 bool isNearGridCenter (segm player, int gridPx);
@@ -50,6 +50,7 @@ bool hasHitFood(segm player, Food *food);
 void addSegm(segm player);
 void freeAll(segm player, Food *food);
 void turnSegm (segm segm, int gridPx);
+bool hasHitBody (segm player);
 
 int main() {
     //get screen dimensions
@@ -58,7 +59,7 @@ int main() {
     int gridPx = 50;
 
     //initialisation of player and food
-    segm player = initPlayer(screenWidth, screenHeight, GRID_SIZE);
+    segm player = initPlayer(GRID_SIZE, gridPx);
     Food *food = initFood(GRID_SIZE, gridPx);
 
     //seed the rng
@@ -93,7 +94,7 @@ int main() {
                     addSegm(player);
                     frameCounter = 0;
                 }
-                if (!movePlayer(player, frameCounter, SNAKE_SPEED)) {
+                if (!movePlayer(player, frameCounter, 10)) {
                     screen = LOSE;
                     break;
                 }
@@ -155,46 +156,40 @@ void drawGrid(int gridSize, int gridPx) {
     }         
 }
 
-segm initPlayer(int screenWidth, int screenHeight, int gridSize) {
+//initialise snake head in the middle of the grid
+segm initPlayer(int gridSize, int gridPx) {
     segm player = (segm)malloc(sizeof(snakeSegm));
-    player->position.x = screenWidth >> 1; //screenWidth / 2
-    player->position.y = screenHeight >> 1;
+    player->position.x = (gridSize >> 1) * gridPx + (gridPx >> 1); //gridSize / 2
+    player->position.y = (gridSize >> 1) * gridPx + (gridPx >> 1);
     //by default, snake will go upwards
     player->speed.x = 0;
     player->speed.y = -SNAKE_SPEED;
-    player->radius = (int)(screenWidth / gridSize * 0.4);
+    player->radius = (int)(gridPx * 0.4);
     player->next = NULL;
     player->direction[0] = 'N';
     player->direction[1] = '\0';
     return player;
 }
 
-int movePlayer(segm player, int framesCounter, int speed) {
+/*
+moves snake head and pauses snake body when creating a new segment
+returns 0 if has lost and 1 otherwise
+*/
+int movePlayer(segm player, int frameCounter, int framePause) {
     player->position.x += player->speed.x;
     player->position.y += player->speed.y;
     segm p = player->next;
-    if ((framesCounter / (30 / speed)) >= 1) {
+    if ((frameCounter / framePause) >= 1) {
         while (p != NULL) {
             p->position.x += p->speed.x;
             p->position.y += p->speed.y;
             p = p->next;
         }
     }
-    /*if (player->next != NULL) {
-        if ((abs(player->next->position.x - player->position.x) > 30) ||
-            (abs(player->next->position.y - player->position.y) > 30)) {
-                player->next->position.x += player->next->speed.x;
-                player->next->position.y += player->next->speed.y;
-            }
-        segm p = player->next->next;
-        while (p != NULL) {
-            p->position.x += p->speed.x;
-            p->position.y += p->speed.y;
-            p = p->next;
-        }
-    }*/
+    //if it reaches end of screen or has hit itself
     if (player->position.x <= 0 || player->position.x >= GetRenderWidth() ||
-        player->position.y <= 0 || player->position.y >= GetRenderHeight())
+        player->position.y <= 0 || player->position.y >= GetRenderHeight() ||
+        hasHitBody(player))
         return 0;
     return 1;
 }
@@ -219,23 +214,38 @@ void directionChange (segm player, int gridSize, int gridPx) {
         which would create input lag by first "changing direction"
         to the same one, esentially blocking new valid inputs)
         */
-        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && player->direction[0] != 'W') {
+
+        /*
+        player->speed.x <= 0
+        (happens when it is either moving up or down (= 0), or when 
+        going 'W' (= snake_speed < 0). We also memorise going 'W' when 
+        already going that direction because it can already have a different
+        direct in buffer (it can go up and then left again so it is relevant))
+        etc. for rest
+        */
+
+        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && player->direction[0] != 'W' &&
+            player->speed.x <= 0) {
             player->direction[k++] = 'W';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && player->direction[0] != 'N') {
+        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && player->direction[0] != 'N' &&
+                 player->speed.y <= 0) {
             player->direction[k++] = 'N';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && player->direction[0] != 'E') {
+        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && player->direction[0] != 'E' &&
+                 player->speed.x >= 0) {
             player->direction[k++] = 'E';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && player->direction[0] != 'S') {
+        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && player->direction[0] != 'S' &&
+                 player->speed.y >= 0) {
             player->direction[k++] = 'S';
             player->direction[k++] = '\0';
         }
     }
+    printf("%s\n", player->direction);
     //check whether the head is close enough to the center to turn
     if (isNearGridCenter(player, gridPx)) {
         turnSegm(player, gridPx);
@@ -347,4 +357,23 @@ void turnSegm (segm segm, int gridPx) {
         break;
         default: break;
     }
+}
+
+bool hasHitBody (segm player) {
+    int i;
+    segm p = player->next;
+    /*
+    move to 4th segm to check collisions since it's impossible to
+    hit yourself within first 3 segm (also fixes false positives when
+    creating a new segment)
+    */
+    for (i = 0; i < 3 && p != NULL; i++)
+        p = p->next;
+    while (p != NULL) {
+        if (abs(p->position.x - player->position.x) <= player->radius &&
+            abs(p->position.y - player->position.y) <= player->radius)
+            return true;
+        p = p->next;
+    }
+    return false;
 }
