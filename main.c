@@ -5,7 +5,7 @@
 #include <time.h>
 
 #define GRID_SIZE 15
-#define SNAKE_SPEED 4
+#define SNAKE_SPEED 2
 
 //colors are based on rgba
 #define GRID_LIGHT_GREEN (Color) {170, 215, 81, 255}
@@ -16,6 +16,7 @@ typedef enum gameScreen {
 } gameScreen;
 
 typedef struct snakeSegm snakeSegm, *segm;
+typedef struct food Food;
 
 //the snake is a singly linked list
 struct snakeSegm {
@@ -26,16 +27,16 @@ struct snakeSegm {
     The snake will have to stick to the grid so when the
     direction changes it will not necessarily turn on the spot
     (it will memorise up to 2 actions and turn only when it can)
-    (6 for '\0' to use string operations)
+    (3 for '\0' to use string operations)
     */
     char direction[3];
     segm next;
 };
 
-typedef struct food {
+struct food {
     Vector2 position;
     int radius;
-} Food;
+};
 
 void drawGrid(int gridSize, int gridPx);
 segm initPlayer(int gridSize, int gridPx);
@@ -43,7 +44,7 @@ int movePlayer(segm player, int frameCounter, int framePause);
 void drawSnake (segm player);
 void directionChange (segm player, int gridSize, int gridPx);
 bool isNearGridCenter (segm player, int gridPx);
-void createFood(Food *food, int gridSize, int gridPx);
+void createFood(Food *food, segm player, int gridSize, int gridPx);
 void drawFood (Food *food);
 Food *initFood(int gridSize, int gridPx);
 bool hasHitFood(segm player, Food *food);
@@ -53,10 +54,10 @@ void turnSegm (segm segm, int gridPx);
 bool hasHitBody (segm player);
 
 int main() {
-    //get screen dimensions
-    int screenWidth = GRID_SIZE * 50;
-    int screenHeight = GRID_SIZE * 50;
+    //set screen dimensions
     int gridPx = 50;
+    int screenWidth = GRID_SIZE * gridPx;
+    int screenHeight = GRID_SIZE * gridPx;
 
     //initialisation of player and food
     segm player = initPlayer(GRID_SIZE, gridPx);
@@ -75,7 +76,7 @@ int main() {
     //bool gamePaused = 0;
 
     //set fps of game
-    SetTargetFPS(60);
+    SetTargetFPS(120);
 
     //main game
     while (!WindowShouldClose()) {
@@ -90,11 +91,11 @@ int main() {
             case GAMEPLAY:
                 directionChange(player, GRID_SIZE, gridPx);
                 if (hasHitFood(player, food)) {
-                    createFood(food, GRID_SIZE, gridPx);
+                    createFood(food, player, GRID_SIZE, gridPx);
                     addSegm(player);
                     frameCounter = 0;
                 }
-                if (!movePlayer(player, frameCounter, 10)) {
+                if (!movePlayer(player, frameCounter, 20)) {
                     screen = LOSE;
                     break;
                 }
@@ -219,35 +220,42 @@ void directionChange (segm player, int gridSize, int gridPx) {
         player->speed.x <= 0
         (happens when it is either moving up or down (= 0), or when 
         going 'W' (= snake_speed < 0). We also memorise going 'W' when 
-        already going that direction because it can already have a different
-        direct in buffer (it can go up and then left again so it is relevant))
+        already going that direction because it can have a different
+        direction in buffer (it can go up and then left again)). This
+        condition has the OR operator in case there is a valid move
+        in buffer in which case there can be added the 'E' direction
+        (going W means it cannot go E immediately but it can go N/S and then E).
         etc. for rest
         */
 
-        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && player->direction[0] != 'W' &&
-            player->speed.x <= 0) {
+       /*
+       explanation of condition on 'W'
+       */
+
+        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && !(!player->direction[0] && player->speed.x <0) &&
+            (player->speed.x <= 0 || player->direction[0]) && (player->direction[0] != 'E') && player->direction[0] != 'W') {
             player->direction[k++] = 'W';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && player->direction[0] != 'N' &&
-                 player->speed.y <= 0) {
+        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && !(!player->direction[0] && player->speed.y <0) &&
+                 (player->speed.y <= 0 || player->direction[0]) && (player->direction[0] != 'S') && player->direction[0] != 'N') {
             player->direction[k++] = 'N';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && player->direction[0] != 'E' &&
-                 player->speed.x >= 0) {
+        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && !(!player->direction[0] && player->speed.x >0) &&
+                 (player->speed.x >= 0 || player->direction[0]) && (player->direction[0] != 'W') && player->direction[0] != 'E') {
             player->direction[k++] = 'E';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && player->direction[0] != 'S' &&
-                 player->speed.y >= 0) {
+        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && !(!player->direction[0] && player->speed.y >0) &&
+                 (player->speed.y >= 0 || player->direction[0]) && (player->direction[0] != 'N') && player->direction[0] != 'S') {
             player->direction[k++] = 'S';
             player->direction[k++] = '\0';
         }
     }
-    printf("%s\n", player->direction);
     //check whether the head is close enough to the center to turn
     if (isNearGridCenter(player, gridPx)) {
+        printf("%s\n", player->direction);
         turnSegm(player, gridPx);
         //transmit the move executed to next segment
         if (player->next != NULL)
@@ -283,9 +291,36 @@ bool isNearGridCenter (segm player, int gridPx) {
     return false;
 }
 
-void createFood(Food *food, int gridSize, int gridPx) {
-    food->position.x = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
-    food->position.y = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
+void createFood(Food *food, segm player, int gridSize, int gridPx) {
+    //get initial random values
+    int posX = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
+    int posY = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
+    //check if position overlaps with snake
+    bool isInvalid;
+    segm p;
+    do {
+        //assume the coordinates are valid
+        isInvalid = false;
+        //start from snake head
+        p = player;
+        //check if food is inside any of the segm
+        while (p != NULL) {
+            if (abs(p->position.x - posX) <= (p->radius + food->radius) &&
+                abs(p->position.y - posY) <= (p->radius + food->radius)) {
+                    posX = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
+                    posY = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
+                    /*
+                    makes the while condition true so it redoes the checks
+                    with the new coordinates
+                    */
+                    isInvalid = true;
+                    break;
+                }
+            p = p->next;
+        }
+    } while (isInvalid);
+    food->position.x = posX;
+    food->position.y = posY;
 }
 
 void drawFood(Food *food) {
