@@ -12,7 +12,7 @@
 #define GRID_GREEN (Color) {162, 209, 73, 255}
 
 typedef enum gameScreen {
-    LOGO, TITLE, GAMEPLAY, WIN, LOSE
+    LOGO, MENU, GAMEPLAY, END
 } gameScreen;
 
 typedef struct snakeSegm snakeSegm, *segm;
@@ -72,10 +72,13 @@ int main() {
     //define screen type
     gameScreen screen = GAMEPLAY;
     int frameCounter = 0;
-    //int gameResult = -1; //-1 not defined, 0 lose, 1 win
     //bool gamePaused = 0;
 
-    //set fps of game
+    /*
+    set fps of game
+    (can be set to 60, snake speed doubled and
+    framePause halved for better performance)
+    */
     SetTargetFPS(120);
 
     //main game
@@ -83,10 +86,10 @@ int main() {
         //game processes
         switch (screen) {
             case LOGO:
-                //ADD LOGO
+                //maybe add a logo?
             break;
-            case TITLE:
-                
+            case MENU:
+                //create a menu with settings
             break;
             case GAMEPLAY:
                 directionChange(player, GRID_SIZE, gridPx);
@@ -96,16 +99,12 @@ int main() {
                     frameCounter = 0;
                 }
                 if (!movePlayer(player, frameCounter, 20)) {
-                    screen = LOSE;
+                    screen = END;
                     break;
                 }
                 frameCounter++;
             break;
-            case WIN:
-
-            break;
-            case LOSE:
-
+            case END:
             break;
             default: break;
         }
@@ -116,20 +115,15 @@ int main() {
         //game visuals
         switch (screen) {
             case LOGO:
-                //ADD LOGO
             break;
-            case TITLE:
-                
+            case MENU:
             break;
             case GAMEPLAY:
                 drawGrid(GRID_SIZE, gridPx);
                 drawSnake(player);
                 drawFood(food);
             break;
-            case WIN:
-
-            break;
-            case LOSE:
+            case END:
                 DrawText("YOU LOST", (screenWidth >> 1) - 100, (screenHeight >> 1) - 40, 40, BLACK);
             break;
             default: break;
@@ -137,11 +131,14 @@ int main() {
 
         EndDrawing();
     }
+    //free all dynamically allocated variables
     freeAll(player, food);
+
     CloseWindow();
     return 0;
 }
 
+//Draws the grid squares
 void drawGrid(int gridSize, int gridPx) {
     ClearBackground(GRID_LIGHT_GREEN);
     int i, pos;
@@ -157,7 +154,7 @@ void drawGrid(int gridSize, int gridPx) {
     }         
 }
 
-//initialise snake head in the middle of the grid
+//Initialise snake head in the middle of the grid
 segm initPlayer(int gridSize, int gridPx) {
     segm player = (segm)malloc(sizeof(snakeSegm));
     player->position.x = (gridSize >> 1) * gridPx + (gridPx >> 1); //gridSize / 2
@@ -167,19 +164,20 @@ segm initPlayer(int gridSize, int gridPx) {
     player->speed.y = -SNAKE_SPEED;
     player->radius = (int)(gridPx * 0.4);
     player->next = NULL;
-    player->direction[0] = 'N';
-    player->direction[1] = '\0';
+    player->direction[0] = '\0';
     return player;
 }
 
 /*
-moves snake head and pauses snake body when creating a new segment
+Moves snake head and pauses snake body when creating a new segment
 returns 0 if has lost and 1 otherwise
 */
 int movePlayer(segm player, int frameCounter, int framePause) {
+    //increment position of snake head
     player->position.x += player->speed.x;
     player->position.y += player->speed.y;
     segm p = player->next;
+    //move rest of snake only if enough frames have passed
     if ((frameCounter / framePause) >= 1) {
         while (p != NULL) {
             p->position.x += p->speed.x;
@@ -197,67 +195,65 @@ int movePlayer(segm player, int frameCounter, int framePause) {
 
 void drawSnake (segm player) {
     segm p = player;
-    do {
+    while (p != NULL) {
         DrawCircle(p->position.x, p->position.y, p->radius, BLACK);
         p = p->next;
-    } while (p != NULL);
+    }
 }
 
+//Memorises valid moves and executes them when possible (near a grid square's center)
 void directionChange (segm player, int gridSize, int gridPx) {
     //separate case for player head
     int k = strlen(player->direction);
     //memorise new direction only if it doesnt exceed 1 char
     if (k < 2) {
         /*
-        memorise in the string the directions inputed only if
-        it does not coincide with the direction already going
-        (this way it wont fill with same direction when spamming
-        which would create input lag by first "changing direction"
-        to the same one, esentially blocking new valid inputs)
+        explanation of conditions on 'W' (the rest are identical but adapted):
+
+            (player->direction[0] || player->speed.x == 0)
+            - is true if speed.x is 0 (only happens when going up or down) in which
+            case snake can turn left (rest of conditions explained next)
+            - is true also if speed.x is not 0 (so it is already going left or is going right)
+            only if there is already a move in memory (reason why explained next)
+
+            player->direction[0] != 'E' && player->direction[0] != 'W'
+            - if speed.x is 0 then we also check we do not already have 'E' or 'W'
+            in memory - fixes bugs where going up/down one could spam 'W' which would add
+            2 'W's to memory esentially turning snake left and forcing next square to also
+            be left (which does nothing, so it delays valid player input) or where one could
+            quickly press 'W' and 'E' which would make the snake turn on itself (invalid move)
+            - if speed.x is not 0 and there is already a move in memory, it checks if that move
+            if 'E' or 'W' so that it either does not add another 'W' (making 2 'W's which
+            create latency as explained above) or that it does not add an 'E' after a 'W'
+            (this bug happened when moving left/right then changing to 'N' or 'S' and
+            then quickly changing to E, W, E, W..., making snake turn around indefinetely if short)
         */
 
-        /*
-        player->speed.x <= 0
-        (happens when it is either moving up or down (= 0), or when 
-        going 'W' (= snake_speed < 0). We also memorise going 'W' when 
-        already going that direction because it can have a different
-        direction in buffer (it can go up and then left again)). This
-        condition has the OR operator in case there is a valid move
-        in buffer in which case there can be added the 'E' direction
-        (going W means it cannot go E immediately but it can go N/S and then E).
-        etc. for rest
-        */
-
-       /*
-       explanation of condition on 'W'
-       */
-
-        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && !(!player->direction[0] && player->speed.x <0) &&
-            (player->speed.x <= 0 || player->direction[0]) && (player->direction[0] != 'E') && player->direction[0] != 'W') {
+        if ((IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) && (player->direction[0] || player->speed.x == 0) &&
+            player->direction[0] != 'E' && player->direction[0] != 'W') {
             player->direction[k++] = 'W';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && !(!player->direction[0] && player->speed.y <0) &&
-                 (player->speed.y <= 0 || player->direction[0]) && (player->direction[0] != 'S') && player->direction[0] != 'N') {
+        else if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && (player->direction[0] || player->speed.y == 0) &&
+            player->direction[0] != 'S' && player->direction[0] != 'N') {
             player->direction[k++] = 'N';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && !(!player->direction[0] && player->speed.x >0) &&
-                 (player->speed.x >= 0 || player->direction[0]) && (player->direction[0] != 'W') && player->direction[0] != 'E') {
+        else if ((IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) && (player->direction[0] || player->speed.x == 0) &&
+            player->direction[0] != 'W' && player->direction[0] != 'E') {
             player->direction[k++] = 'E';
             player->direction[k++] = '\0';
         }
-        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && !(!player->direction[0] && player->speed.y >0) &&
-                 (player->speed.y >= 0 || player->direction[0]) && (player->direction[0] != 'N') && player->direction[0] != 'S') {
+        else if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && (player->direction[0] || player->speed.y == 0) &&
+            player->direction[0] != 'N' && player->direction[0] != 'S') {
             player->direction[k++] = 'S';
             player->direction[k++] = '\0';
         }
     }
     //check whether the head is close enough to the center to turn
     if (isNearGridCenter(player, gridPx)) {
-        printf("%s\n", player->direction);
         turnSegm(player, gridPx);
-        //transmit the move executed to next segment
+        //transmit the move executed to the next segment (if it exists)
         if (player->next != NULL)
             player->next->direction[0] = player->direction[0];
         /*
@@ -278,24 +274,29 @@ void directionChange (segm player, int gridSize, int gridPx) {
     }
 }
 
-bool isNearGridCenter (segm player, int gridPx) {
-    //calculate distance from grid-cell center
-    int distCenterX = ((int)player->position.x % gridPx + (gridPx >> 1)) % gridPx;
-    int distCenterY = ((int)player->position.y % gridPx + (gridPx >> 1)) % gridPx;
+/*
+Returns true if snake segment is as close as it can get to the center
+of a grid square (depending on snake speed, it may not perfectly reach it)
+*/
+bool isNearGridCenter (segm segm, int gridPx) {
+    //calculate distance from grid square's center
+    int distCenterX = ((int)segm->position.x % gridPx + (gridPx >> 1)) % gridPx;
+    int distCenterY = ((int)segm->position.y % gridPx + (gridPx >> 1)) % gridPx;
     //check if player is as close to center as can get
-    if (-(abs((int)player->speed.x) >> 1) <= distCenterX &&
-        (abs((int)player->speed.x) >> 1) >= distCenterX &&
-        -(abs((int)player->speed.y) >> 1) <= distCenterY &&
-        (abs((int)player->speed.y) >> 1) >= distCenterY)
+    if (-(abs((int)segm->speed.x) >> 1) <= distCenterX &&
+        (abs((int)segm->speed.x) >> 1) >= distCenterX &&
+        -(abs((int)segm->speed.y) >> 1) <= distCenterY &&
+        (abs((int)segm->speed.y) >> 1) >= distCenterY)
         return true;
     return false;
 }
 
+//Creates food at a random position that does not coincide with snake
 void createFood(Food *food, segm player, int gridSize, int gridPx) {
     //get initial random values
     int posX = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
     int posY = GetRandomValue(0, gridSize - 1) * gridPx + (gridPx >> 1);
-    //check if position overlaps with snake
+    //to check if position overlaps with snake
     bool isInvalid;
     segm p;
     do {
@@ -327,6 +328,7 @@ void drawFood(Food *food) {
     DrawCircle(food->position.x, food->position.y, food->radius, RED);
 }
 
+//Initialise food above snake
 Food *initFood(int gridSize, int gridPx) {
     Food *food = (Food *)malloc(sizeof(food));
     food->position.x = gridSize * gridPx >> 1;
@@ -335,6 +337,7 @@ Food *initFood(int gridSize, int gridPx) {
     return food;
 }
 
+//Returns true if snake has hit food
 bool hasHitFood(segm player, Food *food) {
     if (abs(player->position.x - food->position.x) <= player->radius + food->radius &&
         abs(player->position.y - food->position.y) <= player->radius + food->radius)
@@ -342,7 +345,7 @@ bool hasHitFood(segm player, Food *food) {
     return false;
 }
 
-//add segment right after snake head
+//Adds a new segment overlapping with the snake head
 void addSegm(segm player) {
     segm newSegm = (segm)malloc(sizeof(snakeSegm));
     newSegm->position.x = player->position.x;
@@ -359,6 +362,7 @@ void addSegm(segm player) {
     player->next = newSegm;
 }
 
+//Frees all dynamically allocated variables
 void freeAll(segm player, Food *food) {
     segm p = player;
     segm tmp;
@@ -370,9 +374,12 @@ void freeAll(segm player, Food *food) {
     free(food);
 }
 
+//Turns snake segment (centers it and then changes its speed)
 void turnSegm (segm segm, int gridPx) {
+    //center snake to grid square
     segm->position.x = segm->position.x - (int)segm->position.x % gridPx + (gridPx >> 1);
     segm->position.y = segm->position.y - (int)segm->position.y % gridPx + (gridPx >> 1);
+    //change speed according to first direction in memory
     switch (segm->direction[0]) {
         case 'N':
             segm->speed.y = -SNAKE_SPEED;
@@ -394,19 +401,19 @@ void turnSegm (segm segm, int gridPx) {
     }
 }
 
+//Returns true if snake has hit itself
 bool hasHitBody (segm player) {
-    int i;
     segm p = player->next;
     /*
     move to 4th segm to check collisions since it's impossible to
     hit yourself within first 3 segm (also fixes false positives when
     creating a new segment)
     */
-    for (i = 0; i < 3 && p != NULL; i++)
+    for (int i = 0; i < 3 && p != NULL; i++)
         p = p->next;
     while (p != NULL) {
-        if (abs(p->position.x - player->position.x) <= player->radius &&
-            abs(p->position.y - player->position.y) <= player->radius)
+        if (abs(p->position.x - player->position.x) < (player->radius << 1) &&
+            abs(p->position.y - player->position.y) < (player->radius << 1))
             return true;
         p = p->next;
     }
