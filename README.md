@@ -1,7 +1,7 @@
 # Snake in Raylib
 #### This is created out of fun in my spare time.
 
-#### It visually resembles the Snake game offered by google on the browser.
+#### It visually resembles the Snake game offered by Google on the browser.
 
 ## For compilation, first install [Raylib](https://github.com/raysan5/raylib) and then use the included Makefile
 
